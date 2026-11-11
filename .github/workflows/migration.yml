@@ -1,0 +1,61 @@
+name: Idempotent Mattermost Migration & Upgrade
+
+on:
+  push:
+    branches: ["migration"]
+  workflow_dispatch:
+
+env:
+  COMPOSE_FILE: docker-compose.prod.yml
+
+jobs:
+  migrate-and-deploy:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check Migration Status
+        id: check_status
+        run: |
+          if [ -f "/home/runner/.mattermost_migration_completed" ]; then
+            echo "✅ Database already migrated. Skipping."
+            echo "already_migrated=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠ Migration required."
+            echo "already_migrated=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Backup Legacy MySQL
+        if: steps.check_status.outputs.already_migrated == 'false'
+        run: |
+          BACKUP_NAME="mattermost_mysql_backup_${{ github.run_id }}.sql"
+          docker exec mattermost-mysql mysqldump -u root -p${{ secrets.DB_MYSQL_ROOT_PASSWORD }} mattermost > $BACKUP_NAME
+          echo "✅ Backup saved: $BACKUP_NAME"
+
+      - name: Start Target PostgreSQL
+        if: steps.check_status.outputs.already_migrated == 'false'
+        run: |
+          docker compose -f $COMPOSE_FILE up -d mattermost-postgres
+          sleep 10
+
+      - name: Run pgloader
+        if: steps.check_status.outputs.already_migrated == 'false'
+        run: |
+          docker run --rm --network=mattermost_network mattermost/mattermost-pgloader:latest pgloader \
+            --with "include drop" \
+            mysql://root:${{ secrets.DB_MYSQL_ROOT_PASSWORD }}@mattermost-mysql/mattermost \
+            postgresql://postgres:${{ secrets.DB_POSTGRES_PASSWORD }}@mattermost-postgres/mattermost
+
+      - name: Mark Migration Completed
+        if: steps.check_status.outputs.already_migrated == 'false'
+        run: touch /home/runner/.mattermost_migration_completed
+
+      - name: Deploy Upgraded Stack
+        run: |
+          docker compose -f $COMPOSE_FILE up -d --remove-orphans
+          sleep 30
+
+      - name: Health Check
+        run: |
+          curl -f http://localhost:8065/api/v4/system/ping || exit 1
