@@ -10,7 +10,7 @@ env:
 
 jobs:
   migrate-and-deploy:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -18,7 +18,7 @@ jobs:
       - name: Check Migration Status
         id: check_status
         run: |
-          if [ -f "/home/runner/.mattermost_migration_completed" ]; then
+          if [ -f "/$HOME/runner/.mattermost_migration_completed" ]; then
             echo "✅ Database already migrated. Skipping."
             echo "already_migrated=true" >> $GITHUB_OUTPUT
           else
@@ -49,7 +49,7 @@ jobs:
 
       - name: Mark Migration Completed
         if: steps.check_status.outputs.already_migrated == 'false'
-        run: touch /home/runner/.mattermost_migration_completed
+        run: touch /$HOME/runner/.mattermost_migration_completed
 
       - name: Deploy Upgraded Stack
         run: |
