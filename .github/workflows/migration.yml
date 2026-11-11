@@ -26,6 +26,12 @@ jobs:
             echo "already_migrated=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Create .env file with secrets
+        run: |
+          echo "POSTGRES_PASSWORD=${{ secrets.DB_POSTGRES_PASSWORD }}" > .env
+          echo "DB_MYSQL_ROOT_PASSWORD=${{ secrets.DB_MYSQL_ROOT_PASSWORD }}" >> .env
+          echo "✅ .env file created with secrets"
+
       - name: Backup Legacy MySQL
         if: steps.check_status.outputs.already_migrated == 'false'
         run: |
@@ -39,17 +45,22 @@ jobs:
             exit 1
           fi
 
+      - name: Remove old PostgreSQL container
+        if: steps.check_status.outputs.already_migrated == 'false'
+        run: |
+          echo "🧹 Removing old PostgreSQL container if exists..."
+          docker rm -f mattermost-postgres || true
+          docker network create mattermost_network || true
+
       - name: Start Target PostgreSQL
         if: steps.check_status.outputs.already_migrated == 'false'
         run: |
-          echo "🌐 Creating mattermost_network..."
-          docker network create mattermost_network || true
           echo "🚀 Starting PostgreSQL..."
-          docker compose -p mattermost -f $COMPOSE_FILE up -d mattermost-postgres
+          docker compose -f $COMPOSE_FILE up -d mattermost-postgres
           echo "⏳ Waiting for PostgreSQL to initialize..."
           sleep 15
 
-      - name: Run pgloader
+      - name: Run pgloader (With Schema Drop for Idempotency)
         if: steps.check_status.outputs.already_migrated == 'false'
         run: |
           echo "🔄 Migrating schema and data from MySQL to PostgreSQL..."
@@ -67,7 +78,7 @@ jobs:
       - name: Deploy Upgraded Stack
         run: |
           echo "🚀 Launching Upgraded Mattermost Stack..."
-          docker compose -p mattermost -f $COMPOSE_FILE up -d --build --remove-orphans
+          docker compose -f $COMPOSE_FILE up -d --build --remove-orphans
           echo "⏳ Waiting for Mattermost to apply internal database updates..."
           sleep 30
 
@@ -78,6 +89,6 @@ jobs:
             echo "✅ Mattermost upgraded successfully and running on Postgres!"
           else
             echo "❌ Application health check failed. Fetching logs..."
-            docker compose -p mattermost -f $COMPOSE_FILE logs
+            docker compose -f $COMPOSE_FILE logs
             exit 1
           fi
