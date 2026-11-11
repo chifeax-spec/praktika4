@@ -36,7 +36,11 @@ jobs:
       - name: Start Target PostgreSQL
         if: steps.check_status.outputs.already_migrated == 'false'
         run: |
+          echo "🌐 Creating mattermost_network..."
+          docker network create mattermost_network || true
+          echo "🚀 Starting PostgreSQL..."
           docker compose -f $COMPOSE_FILE up -d mattermost-postgres
+          echo "⏳ Waiting for PostgreSQL to initialize..."
           sleep 10
 
       - name: Run pgloader
