@@ -34,9 +34,13 @@ services:
 
 networks:
   mattermost_network:
+    name: mattermost_network
     driver: bridge
 
 volumes:
   mattermost_data:
+    name: mattermost_data
   mattermost_logs:
+    name: mattermost_logs
   postgres_data:
+    name: postgres_data
